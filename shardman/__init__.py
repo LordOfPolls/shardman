@@ -8,7 +8,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 from shardman.config import load_config
 from shardman.models import Shard, all_models
-from shardman.requests import Heartbeat, SessionID
+from shardman.requests import Heartbeat, SessionID, Register
 from shardman.responses import ConnectConfirmed, Status, ShardProjection
 from shardman.state import AlertType, StateManager
 
@@ -161,3 +161,32 @@ async def total_guilds() -> int:
 @api.get("/gateway_info", status_code=200, dependencies=[Depends(requires_authorization)])
 async def gateway_info() -> dict:
     return await state.get_bot_info()
+
+@api.get("/re-register", dependencies=[Depends(requires_authorization)])
+async def re_register(payload: Register) -> ConnectConfirmed:
+    # used by an already running shard to register itself
+    # expects a 2xx response if the shard is available, 4xx if not
+    # On 4xx, the shard should stop itself
+    missing_shards = await state.get_missing_shards()
+
+    if payload.shard_id not in missing_shards:
+        raise HTTPException(status_code=409, detail="Shard Not Available")
+    if payload.max_shards != state.total_shards:
+        raise HTTPException(status_code=412, detail="Max Shards Mismatch")
+
+    session_id = ulid.new().str
+    last_beat = datetime.now(tz=timezone.utc)
+
+    shard = Shard(shard_id=payload.shard_id, session_id=session_id, last_beat=last_beat)
+    await shard.insert()
+
+    await state.send_alert(shard=shard, alert_type=AlertType.Connect)
+
+    return ConnectConfirmed(
+        shard_id=payload.shard_id,
+        max_shards=state.total_shards,
+        session_id=session_id,
+        sleep_duration=0.0,
+    )
+
+

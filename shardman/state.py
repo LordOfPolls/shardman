@@ -77,16 +77,21 @@ class StateManager:
         self.max_concurrency = data.get("session_start_limit").get("max_concurrency")
         return data
 
+    async def get_missing_shards(self) -> list[int]:
+        """Get missing shards."""
+        expected_shards = list(range(self.total_shards))
+
+        async for shard in Shard.find():
+            expected_shards.remove(shard.shard_id)
+
+        return expected_shards
+
     async def get_shard_id(self) -> int | None:
         """Get needed shard ID, if any are available"""
         shards = await Shard.find().to_list()
         if len(shards) == 0:
             return 0
 
-        shard_ids = [x.shard_id for x in shards]
-        missing_shards = sorted(set(range(0, self.total_shards)).difference(shard_ids))
+        missing_shards = await self.get_missing_shards()
 
-        if len(missing_shards) == 0:
-            return None
-
-        return missing_shards[0]
+        return None if len(missing_shards) == 0 else missing_shards[0]

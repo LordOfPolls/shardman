@@ -14,3 +14,8 @@ class Heartbeat(BaseModel):
 class SessionID(BaseModel):
     session_id: str
 
+
+class Register(BaseModel):
+    shard_id: int
+    max_shards: int
+    active: bool
